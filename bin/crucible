@@ -502,7 +502,7 @@ def lean_audit(repo: Path, output: Path) -> None:
     config = load_config(repo)
     ledger = read_ledger(repo, config)
     modules = sorted({node.event["module"] for node in ledger.nodes if "module" in node.event})
-    lines = [*(f"import {module}" for module in modules), "", "set_option autoImplicit false", "", "namespace CrucibleLedgerAudit", ""]
+    lines = ["import Mathlib", *(f"import {module}" for module in modules), "", "set_option autoImplicit false", "", "namespace CrucibleLedgerAudit", ""]
     for sha, state in ledger.obligations.items():
         proposition = state.node.event["proposition"]
         lines.append(f"example : Prop := @{proposition}")
