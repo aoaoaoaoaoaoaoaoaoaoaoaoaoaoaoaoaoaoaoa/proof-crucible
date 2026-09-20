@@ -29,4 +29,3 @@ Each synopsis uses this shape:
 
 <Exact campaign definitions or obligations supported by this work.>
 ```
-

@@ -12,23 +12,25 @@ Pin this repository as a submodule and expose its skill at Codex's repository
 skill path:
 
 ```console
+mkdir my-campaign && cd my-campaign
+git init -b main
 git submodule add https://github.com/aoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoa/proof-crucible.git .crucible
-mkdir -p .agents/skills
-ln -s ../../.crucible/.agents/skills/proof-crucible .agents/skills/proof-crucible
-cp .crucible/campaign-template/crucible.toml .
-cp .crucible/campaign-template/AGENTS.md .
-mkdir -p ledger/events sources references
-printf '/references/\n/_site/\n' >> .gitignore
-git add .gitmodules .crucible .agents AGENTS.md crucible.toml .gitignore ledger sources
+.crucible/bin/crucible init --campaign my-campaign
+git add . && git commit -m 'Initialize Proof Crucible campaign'
 ```
 
-Then adapt the campaign name and Lean package, install the strict profile, and
-run:
+Edit `CAMPAIGN.md` so its immediate frontier names an executable first step,
+push the repository, let the initial `check` workflow complete, then apply the
+shipped branch protection:
 
 ```console
 .crucible/bin/crucible doctor
 .crucible/bin/crucible frontier
+scripts/apply-github-rules
 ```
+
+`init` installs the repository's shared-Lake-package worktree hook. After a
+fresh recursive clone, run `scripts/share-lake-packages.sh --install` once.
 
 A non-recursive clone begins with:
 
@@ -50,5 +52,6 @@ versions; campaign correctness never depends on a mutable tag or branch.
 - `profiles/lean-strict/` carries the formal verification baseline.
 - `campaign-template/` carries the small campaign-owned bootstrap.
 
-Run `scripts/check` to verify the distribution.
-
+Run `scripts/check` for the protocol and validator suite.
+`scripts/check-campaign-template` additionally instantiates a fresh campaign and
+runs its complete strict Lean transaction.

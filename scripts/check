@@ -5,15 +5,31 @@ ROOT="$(git rev-parse --show-toplevel)"
 readonly ROOT
 cd -- "$ROOT"
 
-python3 -m py_compile bin/crucible tests/test_protocol.py
+python3 -m py_compile \
+  bin/crucible \
+  tests/test_protocol.py \
+  profiles/lean-strict/scripts/scan-lean-sources.py \
+  campaign-template/scripts/scan-lean-sources.py
 python3 -m unittest discover -s tests -v
 python3 - <<'PY'
 import json
+import re
+import runpy
 from pathlib import Path
 
 root = Path.cwd()
 schema = json.loads((root / "protocol/1/event.schema.json").read_text())
 assert schema["$defs"]["obligation"]["properties"]["protocol"]["const"] == 1
+runtime = runpy.run_path(root / "bin/crucible")
+for value in ("Foo.Bar", "Foo_bar.baz'", "A"):
+    assert runtime["LEAN_NAME"].fullmatch(value)
+for value in ("Foo..Bar", "Foo.", "Foo.1"):
+    assert not runtime["LEAN_NAME"].fullmatch(value)
+source_pattern = re.compile(schema["$defs"]["source"]["pattern"])
+for value in ("sources/a.md", "sources/topic/a-1.md#theorem-2"):
+    assert source_pattern.fullmatch(value) and runtime["SOURCE"].fullmatch(value)
+for value in ("sources/a/../b.md", "sources/foo bar.md", "sources/.hidden.md", "sources/a.md#", "sources//a.md"):
+    assert not source_pattern.fullmatch(value) and not runtime["SOURCE"].fullmatch(value)
 
 skill = (root / ".agents/skills/proof-crucible/SKILL.md").read_text()
 assert skill.startswith("---\nname: proof-crucible\ndescription:")
@@ -22,13 +38,16 @@ assert "protocol/1/PROTOCOL.md" in skill
 link = root / "campaign-template/.agents/skills/proof-crucible"
 assert link.is_symlink()
 assert str(link.readlink()) == "../../.crucible/.agents/skills/proof-crucible"
+
+for relative in (
+    "Verification/Audit.lean",
+    "scripts/check-proof-sources.sh",
+    "scripts/scan-lean-sources.py",
+):
+    assert (root / "profiles/lean-strict" / relative).read_bytes() == (root / "campaign-template" / relative).read_bytes()
 PY
 bin/crucible --help >/dev/null
 
-if git diff --check --quiet; then
-  printf 'check: ok\n'
-else
-  git diff --check
-  exit 1
-fi
-
+git diff --check
+git diff --cached --check
+printf 'check: ok\n'

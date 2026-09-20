@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ "${3:-0}" == 1 ]] || exit 0
+
+HOOK="$(readlink -f -- "$0")"
+readonly HOOK
+PRIMARY_ROOT="$(cd -- "$(dirname -- "$HOOK")/.." && pwd)"
+readonly PRIMARY_ROOT
+WORKTREE="$(git rev-parse --show-toplevel)"
+readonly WORKTREE
+
+[[ -f "$WORKTREE/lean-toolchain" && -f "$WORKTREE/lake-manifest.json" ]] || exit 0
+
+"$PRIMARY_ROOT/scripts/share-lake-packages.sh" "$WORKTREE"

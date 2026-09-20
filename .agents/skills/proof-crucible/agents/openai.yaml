@@ -2,4 +2,3 @@ interface:
   display_name: "Proof Crucible"
   short_description: "Run a Git-native Lean proof campaign"
   default_prompt: "Inspect this Proof Crucible campaign, take the first lawful high-leverage step, and continue through a checked certificate or withdrawal."
-

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+readonly ROOT
+cd -- "$ROOT"
+REPOSITORY="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+readonly REPOSITORY
+
+gh api --method PATCH "repos/$REPOSITORY" \
+  -f allow_squash_merge=true \
+  -f allow_merge_commit=false \
+  -f allow_rebase_merge=false \
+  -f allow_auto_merge=true \
+  -f delete_branch_on_merge=true >/dev/null
+gh api --method PUT "repos/$REPOSITORY/branches/main/protection" \
+  --input .github/proof-crucible-branch-protection.json >/dev/null
+printf 'protected %s main\n' "$REPOSITORY"

@@ -7,8 +7,7 @@ description: "Work in a Proof Crucible mathematical campaign: recover its Git le
 
 The protected default branch is the record. Never create a parallel task list,
 database, or ambient research log. Load the pinned protocol at
-[`protocol/1/PROTOCOL.md`](../../../protocol/1/PROTOCOL.md) before changing a
-campaign ledger.
+`.crucible/protocol/1/PROTOCOL.md` before changing a campaign ledger.
 
 ## Enter a campaign
 
@@ -18,6 +17,10 @@ campaign ledger.
    source synopses, and `.crucible/bin/crucible frontier`.
 4. If the campaign names an immediate step, take it. Otherwise choose the
    highest-leverage ready obligation whose prerequisites you understand.
+
+If the ledger is empty, execute `CAMPAIGN.md`'s immediate frontier. The first
+node is an obligation commit containing its source synopsis, dedicated Lean
+formalization file, and one event. Merge that node before opening its attempt.
 
 Read `references/` only after checking its local catalogue and sidecars. It is
 an ignored ad-fontes corpus. Never add anything beneath it to Git. Durable,
@@ -48,7 +51,9 @@ exact term or its negation; do not weaken it, change quantifiers, add hidden
 assumptions, or silently repair the proposition during the proof. A defective
 translation becomes a new obligation with explicit provenance.
 
-Use the campaign's canonical strict check throughout. Finished proofs expose a
+The obligation's dedicated formalization file is immutable after its node.
+Semantic corrections create a new obligation rather than rewriting the old
+target. Use the campaign's canonical strict check throughout. Finished proofs expose a
 static proof DAG: named intermediate facts, `calc` chains, explicit constructors
 and visible automation leaves. Remove exploratory goal-state choreography.
 

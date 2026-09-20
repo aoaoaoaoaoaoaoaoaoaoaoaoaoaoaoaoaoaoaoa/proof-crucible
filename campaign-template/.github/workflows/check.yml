@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -15,22 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Graphviz
-        run: sudo apt-get update && sudo apt-get install --yes graphviz
-      - name: Verify distribution
-        run: scripts/check
-  campaign-template:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: leanprover/lean-action@v1
         with:
           auto-config: false
           use-mathlib-cache: true
       - name: Install Graphviz
         run: sudo apt-get update && sudo apt-get install --yes graphviz
-      - name: Verify campaign template
-        run: scripts/check-campaign-template
+      - name: Verify campaign
+        run: scripts/check.sh

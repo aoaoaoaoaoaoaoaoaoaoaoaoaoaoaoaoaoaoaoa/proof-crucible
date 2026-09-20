@@ -15,4 +15,3 @@ and any external blocker.
 
 List indispensable unavailable, private, or unassimilated sources. Do not hide
 them in chat or model context.
-

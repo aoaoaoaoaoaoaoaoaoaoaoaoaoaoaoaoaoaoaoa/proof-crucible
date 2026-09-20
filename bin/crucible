@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -18,6 +20,13 @@ from typing import Any, NoReturn
 SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 LEAN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*\Z")
 EVENT_NAME = re.compile(r"[a-z0-9][a-z0-9-]*\.json\Z")
+SOURCE = re.compile(
+    r"sources/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
+    r"[A-Za-z0-9][A-Za-z0-9._-]*\.md(?:#[A-Za-z0-9][A-Za-z0-9._-]*)?\Z"
+)
+LEAN_SOURCE = re.compile(
+    r"(?:[A-Za-z0-9_][A-Za-z0-9._-]*/)*[A-Za-z0-9_][A-Za-z0-9._-]*\.lean\Z"
+)
 KINDS = frozenset({"obligation", "attempt", "certificate", "withdrawal"})
 PROTOCOL = 1
 
@@ -31,6 +40,7 @@ class Config:
     campaign: str
     ledger: Path
     lean_profile: str
+    axiom_snapshot: Path
 
 
 @dataclass(frozen=True)
@@ -93,8 +103,9 @@ def load_config(repo: Path) -> Config:
         fail("missing crucible.toml")
     except tomllib.TOMLDecodeError as error:
         fail(f"invalid crucible.toml: {error}")
-    if set(raw) != {"protocol", "campaign", "ledger", "lean_profile"}:
-        fail("crucible.toml must contain exactly protocol, campaign, ledger, and lean_profile")
+    expected = {"protocol", "campaign", "ledger", "lean_profile", "axiom_snapshot"}
+    if set(raw) != expected:
+        fail(f"crucible.toml must contain exactly {', '.join(sorted(expected))}")
     if raw["protocol"] != PROTOCOL:
         fail(f"unsupported emitted protocol {raw['protocol']!r}; this distribution supports {PROTOCOL}")
     if not isinstance(raw["campaign"], str) or not raw["campaign"].strip():
@@ -102,7 +113,10 @@ def load_config(repo: Path) -> Config:
     if raw["lean_profile"] != "strict":
         fail("Protocol 1 campaigns require lean_profile = \"strict\"")
     ledger = safe_relative(raw["ledger"], "ledger")
-    return Config(raw["campaign"], ledger, raw["lean_profile"])
+    snapshot = safe_relative(raw["axiom_snapshot"], "axiom_snapshot")
+    if snapshot.suffix != ".txt":
+        fail("axiom_snapshot must name a .txt file")
+    return Config(raw["campaign"], ledger, raw["lean_profile"], snapshot)
 
 
 def safe_relative(value: object, field: str) -> Path:
@@ -126,6 +140,8 @@ def doctor(repo: Path) -> Config:
     ledger = repo / config.ledger
     if not ledger.is_dir():
         fail(f"missing ledger directory {config.ledger}")
+    if not (repo / config.axiom_snapshot).is_file():
+        fail(f"missing reviewed axiom snapshot {config.axiom_snapshot}")
     ignored = run(
         "git",
         "check-ignore",
@@ -151,6 +167,33 @@ def doctor(repo: Path) -> Config:
             fail(f".crucible checkout is {actual}, but the campaign pins {expected}")
     print(f"doctor: {config.campaign}: protocol {PROTOCOL}, strict Lean, full Git history")
     return config
+
+
+def init_campaign(repo: Path, campaign: str) -> None:
+    campaign = campaign.strip()
+    if not campaign or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", campaign):
+        fail("campaign must be lowercase kebab-case")
+    distribution = Path(__file__).resolve().parent.parent
+    if repo == distribution:
+        fail("refusing to initialize the protocol distribution as a campaign")
+    template = distribution / "campaign-template"
+    for source in template.iterdir():
+        destination = repo / source.name
+        if destination.exists() or destination.is_symlink():
+            fail(f"refusing to replace existing campaign path {destination.relative_to(repo)}")
+        if source.is_symlink():
+            os.symlink(os.readlink(source), destination, target_is_directory=True)
+        elif source.is_dir():
+            shutil.copytree(source, destination, symlinks=True)
+        else:
+            shutil.copy2(source, destination)
+    config = repo / "crucible.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace('campaign = "replace-me"', f'campaign = "{campaign}"'),
+        encoding="utf-8",
+    )
+    run(str(repo / "scripts/share-lake-packages.sh"), "--install", cwd=repo)
+    print(f"init: {campaign}: edit CAMPAIGN.md, commit the scaffold, push, then run scripts/apply-github-rules")
 
 
 def non_empty(value: object, field: str) -> str:
@@ -190,15 +233,30 @@ def exact_keys(event: dict[str, Any], required: set[str], path: Path) -> None:
 
 def validate_source(repo: Path, value: object, field: str) -> str:
     source = non_empty(value, field)
+    if not SOURCE.fullmatch(source):
+        fail(f"{field} violates the Protocol 1 source-path syntax")
     file_part = source.split("#", 1)[0]
     path = safe_relative(file_part, field)
     if not path.parts or path.parts[0] != "sources" or path.suffix != ".md":
         fail(f"{field} must name a Markdown file below sources/")
-    if not (repo / path).is_file():
-        fail(f"{field} names absent file {path}")
-    tracked = run("git", "ls-files", "--error-unmatch", git_path(path), cwd=repo, check=False)
+    if path.name == "README.md":
+        fail(f"{field} must name a source synopsis, not sources/README.md")
+    tracked = run("git", "cat-file", "-e", f"HEAD:{git_path(path)}", cwd=repo, check=False)
     if tracked.returncode:
-        fail(f"{field} names untracked file {path}")
+        fail(f"{field} names file absent from HEAD: {path}")
+    return source
+
+
+def validate_lean_source(repo: Path, value: object, field: str) -> str:
+    source = non_empty(value, field)
+    if not LEAN_SOURCE.fullmatch(source):
+        fail(f"{field} must be a normalized ASCII path ending in .lean")
+    path = safe_relative(source, field)
+    if path.parts[0] in {"references", ".crucible", ".lake"}:
+        fail(f"{field} must name campaign-owned Lean source")
+    tracked = run("git", "cat-file", "-e", f"HEAD:{source}", cwd=repo, check=False)
+    if tracked.returncode:
+        fail(f"{field} names file absent from HEAD: {source}")
     return source
 
 
@@ -212,11 +270,12 @@ def validate_event(repo: Path, path: Path, raw: object) -> dict[str, Any]:
     if kind not in KINDS:
         fail(f"{path}: unknown event kind {kind!r}")
     if kind == "obligation":
-        exact_keys(event, {"protocol", "kind", "title", "statement", "module", "proposition", "requires", "sources"}, path)
+        exact_keys(event, {"protocol", "kind", "title", "statement", "module", "proposition", "formalization", "requires", "sources"}, path)
         non_empty(event["title"], "title")
         non_empty(event["statement"], "statement")
         lean_name(event["module"], "module")
         lean_name(event["proposition"], "proposition")
+        validate_lean_source(repo, event["formalization"], "formalization")
         sha_list(event["requires"], "requires")
         sources = event["sources"]
         if not isinstance(sources, list) or not sources:
@@ -230,13 +289,14 @@ def validate_event(repo: Path, path: Path, raw: object) -> dict[str, Any]:
         non_empty(event["approach"], "approach")
         sha_list(event["informed_by"], "informed_by")
     elif kind == "certificate":
-        exact_keys(event, {"protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "requires", "summary"}, path)
+        exact_keys(event, {"protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "proof", "requires", "summary"}, path)
         sha_value(event["target"], "target")
         sha_value(event["attempt"], "attempt")
         if event["polarity"] not in {"proves", "refutes"}:
             fail("polarity must be proves or refutes")
         lean_name(event["module"], "module")
         lean_name(event["theorem"], "theorem")
+        validate_lean_source(repo, event["proof"], "proof")
         sha_list(event["requires"], "requires")
         non_empty(event["summary"], "summary")
     else:
@@ -247,24 +307,24 @@ def validate_event(repo: Path, path: Path, raw: object) -> dict[str, Any]:
 
 
 def event_files(repo: Path, config: Config) -> list[Path]:
-    root = repo / config.ledger
-    nested = [path for path in root.rglob("*.json") if path.parent != root]
-    if nested:
-        fail(f"event files must live directly in {config.ledger}: {nested[0].relative_to(repo)}")
-    files = sorted(root.glob("*.json"))
+    listed = run(
+        "git", "ls-tree", "-r", "--name-only", "HEAD", "--", git_path(config.ledger), cwd=repo
+    ).stdout.splitlines()
+    files = sorted(Path(path) for path in listed if path.endswith(".json"))
     for path in files:
+        if path.parent != config.ledger:
+            fail(f"event files must live directly in {config.ledger}: {path}")
         if not EVENT_NAME.fullmatch(path.name):
             fail(f"invalid event filename {path.name!r}; use lowercase kebab-case")
     return files
 
 
 def introducing_commit(repo: Path, path: Path) -> str:
-    relative = path.relative_to(repo)
     commits = run(
-        "git", "log", "--diff-filter=A", "--format=%H", "--", git_path(relative), cwd=repo
+        "git", "log", "--diff-filter=A", "--format=%H", "--", git_path(path), cwd=repo
     ).stdout.splitlines()
     if len(commits) != 1:
-        fail(f"{relative} must have exactly one reachable introducing commit; commit the event before validation")
+        fail(f"{path} must have exactly one reachable introducing commit; commit the event before validation")
     return commits[0]
 
 
@@ -280,11 +340,35 @@ def reject_event_mutation(repo: Path, config: Config) -> None:
         cwd=repo,
     ).stdout
     for line in output.splitlines():
-        if line and not line.startswith("A\t"):
+        fields = line.split("\t")
+        touches_event = any(field.endswith(".json") for field in fields[1:])
+        if touches_event and fields[0] != "A":
             fail(f"ledger event history is not append-only: {line}")
 
 
+def commit_changes_path(repo: Path, commit: str, path: str) -> bool:
+    changed = run(
+        "git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit, "--", path, cwd=repo
+    ).stdout.splitlines()
+    return path in changed
+
+
+def immutable_since(repo: Path, commit: str, path: str) -> None:
+    original = run("git", "rev-parse", f"{commit}:{path}", cwd=repo, check=False)
+    current = run("git", "rev-parse", f"HEAD:{path}", cwd=repo, check=False)
+    if original.returncode or current.returncode or original.stdout.strip() != current.stdout.strip():
+        fail(f"obligation formalization {path} changed after node {commit}; create a new obligation")
+
+
 def read_ledger(repo: Path, config: Config) -> Ledger:
+    dirty = run(
+        "git", "status", "--porcelain", "--untracked-files=all", "--", git_path(config.ledger), cwd=repo
+    ).stdout.strip()
+    if dirty:
+        fail(f"ledger worktree is dirty: {dirty.splitlines()[0]}")
+    merges = run("git", "rev-list", "--merges", "HEAD", cwd=repo).stdout.strip()
+    if merges:
+        fail(f"campaign history is not linear; merge commit {merges.splitlines()[0]} is reachable")
     reject_event_mutation(repo, config)
     order = run("git", "rev-list", "--reverse", "--topo-order", "HEAD", cwd=repo).stdout.splitlines()
     position = {sha: index for index, sha in enumerate(order)}
@@ -294,13 +378,14 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
         sha = introducing_commit(repo, path)
         additions.setdefault(sha, []).append(path)
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            source = run("git", "show", f"HEAD:{git_path(path)}", cwd=repo).stdout
+            raw = json.loads(source)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            fail(f"{path.relative_to(repo)}: invalid UTF-8 JSON: {error}")
-        nodes.append(Node(sha, path.relative_to(repo), validate_event(repo, path.relative_to(repo), raw)))
+            fail(f"{path}: invalid UTF-8 JSON: {error}")
+        nodes.append(Node(sha, path, validate_event(repo, path, raw)))
     for sha, paths in additions.items():
         if len(paths) != 1:
-            rendered = ", ".join(str(path.relative_to(repo)) for path in paths)
+            rendered = ", ".join(str(path) for path in paths)
             fail(f"node commit {sha} adds multiple events: {rendered}")
     nodes.sort(key=lambda node: position[node.sha])
     seen: dict[str, Node] = {}
@@ -328,6 +413,9 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
             if event["proposition"] in propositions:
                 fail(f"duplicate obligation proposition {event['proposition']}")
             propositions.add(event["proposition"])
+            if not commit_changes_path(repo, node.sha, event["formalization"]):
+                fail(f"obligation node {node.sha} does not add or change {event['formalization']}")
+            immutable_since(repo, node.sha, event["formalization"])
             obligations[node.sha] = ObligationState(node)
         elif kind == "attempt":
             target = prior(event["target"], "target", {"obligation"})
@@ -354,6 +442,8 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
                 prior(reference, "requires[]", {"certificate"})
             if event["theorem"] in theorems:
                 fail(f"duplicate certificate theorem {event['theorem']}")
+            if not commit_changes_path(repo, node.sha, event["proof"]):
+                fail(f"certificate node {node.sha} does not add or change {event['proof']}")
             theorems.add(event["theorem"])
             state.active_attempt = None
             state.certificate = node.sha
@@ -366,6 +456,15 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
             state.active_attempt = None
             withdrawals[node.sha] = node
         seen[node.sha] = node
+    snapshot_text = run("git", "show", f"HEAD:{git_path(config.axiom_snapshot)}", cwd=repo).stdout
+    snapshotted = {
+        line.split("'", 2)[1]
+        for line in snapshot_text.splitlines()
+        if line.startswith("'") and "'" in line[1:]
+    }
+    missing = sorted(node.event["theorem"] for node in certificates.values() if node.event["theorem"] not in snapshotted)
+    if missing:
+        fail(f"certificate theorems absent from reviewed axiom snapshot: {', '.join(missing)}")
     return Ledger(nodes, obligations, attempts, certificates, withdrawals)
 
 
@@ -396,7 +495,7 @@ def frontier(repo: Path) -> None:
         else:
             status = "READY"
             detail = state.node.event["proposition"]
-        print(f"{status:<8} {sha[:12]} {title} :: {detail}")
+        print(f"{status:<8} {sha} {title} :: {detail}")
 
 
 def lean_audit(repo: Path, output: Path) -> None:
@@ -406,11 +505,11 @@ def lean_audit(repo: Path, output: Path) -> None:
     lines = [*(f"import {module}" for module in modules), "", "set_option autoImplicit false", "", "namespace CrucibleLedgerAudit", ""]
     for sha, state in ledger.obligations.items():
         proposition = state.node.event["proposition"]
-        lines.append(f"#check ({proposition} : Prop)")
+        lines.append(f"example : Prop := @{proposition}")
         if state.certificate:
             certificate = ledger.certificates[state.certificate].event
             target = proposition if certificate["polarity"] == "proves" else f"¬ {proposition}"
-            lines.extend((f"example : {target} :=", f"  {certificate['theorem']}", ""))
+            lines.extend((f"example : {target} :=", f"  @{certificate['theorem']}", ""))
     lines.extend(("end CrucibleLedgerAudit", ""))
     output = output if output.is_absolute() else repo / output
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -506,6 +605,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="crucible")
     parser.add_argument("--repo", help="campaign repository; defaults to the current Git repository")
     commands = parser.add_subparsers(dest="command", required=True)
+    initialize = commands.add_parser("init")
+    initialize.add_argument("--campaign", required=True)
     commands.add_parser("doctor")
     commands.add_parser("check")
     commands.add_parser("frontier")
@@ -520,7 +621,9 @@ def main() -> int:
     arguments = parse_args()
     try:
         repo = repository(arguments.repo)
-        if arguments.command == "doctor":
+        if arguments.command == "init":
+            init_campaign(repo, arguments.campaign)
+        elif arguments.command == "doctor":
             doctor(repo)
         elif arguments.command == "check":
             check_command(repo)

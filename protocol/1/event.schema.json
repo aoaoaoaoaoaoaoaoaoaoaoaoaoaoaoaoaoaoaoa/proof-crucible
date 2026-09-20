@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://eternalist.moe/proof-crucible/protocol/1/event.schema.json",
+  "$id": "https://github.com/aoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoaoa/proof-crucible/blob/main/protocol/1/event.schema.json",
   "title": "Proof Crucible Protocol 1 event",
   "oneOf": [
     { "$ref": "#/$defs/obligation" },
@@ -24,7 +24,11 @@
     },
     "source": {
       "type": "string",
-      "pattern": "^sources/[A-Za-z0-9][A-Za-z0-9._/-]*\\.md(?:#[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+      "pattern": "^sources/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9._-]*\\.md(?:#[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+    },
+    "leanSource": {
+      "type": "string",
+      "pattern": "^(?!.*(?:^|/)\\.\\.?/)(?:[A-Za-z0-9_][A-Za-z0-9._-]*/)*[A-Za-z0-9_][A-Za-z0-9._-]*\\.lean$"
     },
     "shaList": {
       "type": "array",
@@ -34,7 +38,7 @@
     "obligation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "kind", "title", "statement", "module", "proposition", "requires", "sources"],
+      "required": ["protocol", "kind", "title", "statement", "module", "proposition", "formalization", "requires", "sources"],
       "properties": {
         "protocol": { "const": 1 },
         "kind": { "const": "obligation" },
@@ -42,6 +46,7 @@
         "statement": { "$ref": "#/$defs/text" },
         "module": { "$ref": "#/$defs/name" },
         "proposition": { "$ref": "#/$defs/name" },
+        "formalization": { "$ref": "#/$defs/leanSource" },
         "requires": { "$ref": "#/$defs/shaList" },
         "sources": {
           "type": "array",
@@ -66,7 +71,7 @@
     "certificate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "requires", "summary"],
+      "required": ["protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "proof", "requires", "summary"],
       "properties": {
         "protocol": { "const": 1 },
         "kind": { "const": "certificate" },
@@ -75,6 +80,7 @@
         "polarity": { "enum": ["proves", "refutes"] },
         "module": { "$ref": "#/$defs/name" },
         "theorem": { "$ref": "#/$defs/name" },
+        "proof": { "$ref": "#/$defs/leanSource" },
         "requires": { "$ref": "#/$defs/shaList" },
         "summary": { "$ref": "#/$defs/text" }
       }
@@ -92,4 +98,3 @@
     }
   }
 }
-

@@ -25,4 +25,3 @@ tool revision.
 An upgrade changes only the gitlink, runs `crucible doctor`, the ledger check,
 and the campaign's complete formal gate, then lands as a non-node maintenance
 commit. Compatible upgrades never rewrite ledger events.
-

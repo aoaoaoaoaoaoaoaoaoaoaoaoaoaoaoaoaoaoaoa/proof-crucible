@@ -10,6 +10,9 @@ git submodule update --init --recursive
 Read and follow `$proof-crucible`. The skill is pinned through `.crucible` and
 exposed at `.agents/skills/proof-crucible`. Read `CAMPAIGN.md` for the objective
 and mandatory first step, then ground through `.crucible/bin/crucible frontier`.
+If the frontier is empty, the first ledger node is the obligation specified by
+`CAMPAIGN.md`: its commit adds a public-safe source synopsis, a dedicated Lean
+module containing the closed proposition, and exactly one obligation event.
 
 ## Lean
 
@@ -39,4 +42,3 @@ Every ledger node is the squash commit that first adds one event. Existing
 events are immutable. Open and merge an attempt before beginning material proof
 work; close every merged attempt with a certificate or withdrawal. Strict
 up-to-date required checks are the only lock.
-

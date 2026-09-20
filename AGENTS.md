@@ -15,4 +15,3 @@ is a read-only Git projection; it must not acquire mutable state.
 
 The strict Lean profile is derived from the verification posture in
 `/home/main/programming/projects/math`. Do not weaken it for convenience.
-

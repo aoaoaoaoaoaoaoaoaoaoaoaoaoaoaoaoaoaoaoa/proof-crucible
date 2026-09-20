@@ -7,4 +7,3 @@
   ⟨`linter.style.longFile, 1500⟩, ⟨`linter.style.longLine, true⟩,
   ⟨`linter.style.missingEnd, true⟩, ⟨`linter.style.setOption, true⟩
 ]
-

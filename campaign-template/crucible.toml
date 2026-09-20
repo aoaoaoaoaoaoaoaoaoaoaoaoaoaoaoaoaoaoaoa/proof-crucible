@@ -2,4 +2,4 @@ protocol = 1
 campaign = "replace-me"
 ledger = "ledger/events"
 lean_profile = "strict"
-
+axiom_snapshot = "verification/axioms.txt"

@@ -17,17 +17,15 @@ Lean code is warning-free and suppression-free:
 - `sorry`, `admit`, project `axiom`s, `unsafe`, `partial`, `native_decide`,
   `implemented_by`, `run_tac`, external declarations, and equivalent proof
   apertures are forbidden;
-- linter suppressions and local relaxations are forbidden unless an adjacent
-  comment gives an irreducible mathematical reason and campaign policy permits
-  the exception.
+- linter suppressions and local relaxations are forbidden.
 
 Kernel acceptance is the floor. Audit definitions for vacuity, quantifier
 drift, wrong multiplication order, empty-witness loopholes, coercion loss, and
 mismatch with the source statement.
 
-Copy `Verification/Audit.lean` and `scripts/check-proof-sources.sh` into the
-campaign without weakening them. Pin an exact stable Lean toolchain and
-mathlib revision. The root `lakefile.lean` owns these minimum options:
+Copy `Verification/Audit.lean` and both source-policy scripts into the campaign
+without weakening them. Pin an exact stable Lean toolchain and mathlib revision.
+The root `lakefile.lean` owns these minimum options:
 
 ```lean
 leanOptions := #[
@@ -70,4 +68,3 @@ The canonical campaign check must:
 
 Changing the snapshot is a mathematical review action, never blind generated
 cleanup.
-

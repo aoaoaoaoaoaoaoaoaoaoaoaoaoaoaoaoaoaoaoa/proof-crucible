@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+readonly ROOT
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/proof-crucible-campaign.XXXXXXXX")"
+readonly SCRATCH
+
+git -C "$SCRATCH" init -b main --quiet
+git -C "$SCRATCH" config user.name 'Proof Crucible Check'
+git -C "$SCRATCH" config user.email 'proof-crucible@example.invalid'
+git -C "$SCRATCH" config commit.gpgsign false
+git -C "$SCRATCH" -c protocol.file.allow=always submodule add --quiet "$ROOT" .crucible
+"$SCRATCH/.crucible/bin/crucible" --repo "$SCRATCH" init --campaign template-check
+git -C "$SCRATCH" add .
+git -C "$SCRATCH" commit --quiet -m 'Initialize template check campaign'
+"$SCRATCH/scripts/check.sh"
+printf 'campaign-template: ok (%s)\n' "$SCRATCH"
+

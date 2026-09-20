@@ -30,15 +30,18 @@ not establish it.
 Events live directly under the campaign-configured ledger directory, normally
 `ledger/events/`, as UTF-8 JSON files. Each event:
 
-1. conforms exactly to `event.schema.json`;
+1. conforms exactly to `event.schema.json`, which is normative for event syntax;
 2. is added by a commit that adds no other event;
 3. is never modified, renamed, copied, or deleted;
 4. refers to earlier nodes by their full 40- or 64-hexadecimal commit IDs;
 5. uses committed, repository-relative paths for every source synopsis.
 
-The node ID is derived from Git and never appears inside its event. All graph
+The filename is lowercase kebab-case ending in `.json`. No subdirectories are
+allowed beneath the ledger directory. The node ID is derived from Git and never
+appears inside its event. All graph
 references point backward, so a conforming history is acyclic by construction.
-Ordinary maintenance commits are not nodes.
+Ordinary maintenance commits are not nodes. The reference validator owns Git,
+repository, and state-transition laws not expressible in JSON Schema.
 
 ## Events
 
@@ -54,14 +57,18 @@ An obligation records the informal statement beside its formal owner:
   "statement": "The normalized degree-five case has a polynomial inverse.",
   "module": "Hessian.Obligations.DegreeFive",
   "proposition": "Hessian.degreeFiveConjecture",
+  "formalization": "Hessian/Obligations/DegreeFive.lean",
   "requires": [],
   "sources": ["sources/example.md"]
 }
 ```
 
-The proposition must already compile as a closed `Prop`. `requires` contains
-only prior certificate nodes. An obligation is ready when it is unsettled and
-has no active attempt.
+The obligation commit adds or changes `formalization`, a dedicated Lean source
+owning the proposition and any campaign definitions needed to state it. That
+file becomes immutable after the obligation node; semantic corrections use a
+new file and obligation rather than changing history. `requires` contains only
+prior certificate nodes. An obligation is ready when it is unsettled and has no
+active attempt.
 
 ### Attempt
 
@@ -90,6 +97,7 @@ it. Protocol 1 has no clocks, leases, or heartbeats.
   "polarity": "proves",
   "module": "Hessian.Results.DegreeFive",
   "theorem": "Hessian.degreeFiveConjecture_proved",
+  "proof": "Hessian/Results/DegreeFive.lean",
   "requires": [],
   "summary": "The reduction discharges the remaining inversion case."
 }
@@ -97,8 +105,10 @@ it. Protocol 1 has no clocks, leases, or heartbeats.
 
 `polarity` is `proves` or `refutes`. The theorem's type must be definitionally
 equal to the target proposition or its negation. The named attempt must be the
-target's live attempt. `requires` contains only prior certificate nodes. The
-certificate settles the obligation and closes the attempt.
+target's live attempt. The certificate commit adds or changes `proof`, and the
+campaign's reviewed axiom snapshot must contain the named theorem. `requires`
+contains only prior certificate nodes. The certificate settles the obligation
+and closes the attempt.
 
 ### Withdrawal
 
@@ -117,7 +127,9 @@ records who did so.
 
 ## Synchronization
 
-The host's strict required checks are the lock. An agent:
+The host's strict required checks are the lock. The campaign template supplies
+a full-history, recursive-submodule workflow and a repository-rules manifest.
+A host applies equivalent rules before admitting contributors. An agent:
 
 1. fetches and rebases onto the latest default branch;
 2. chooses a ready obligation;
@@ -134,8 +146,9 @@ exists.
 ## Formal boundary
 
 The generated ledger audit imports every obligation and certificate module,
-checks each obligation constant has type `Prop`, and checks every certificate
-theorem against the exact target type. The campaign's strict Lean profile then
+checks each obligation constant is a closed term of type `Prop`, and checks
+every certificate theorem is definitionally equal to the target proposition or
+its negation. The campaign's strict Lean profile then
 compiles this audit alongside its complete warning, source-policy, environment-
 linter, and transitive-axiom checks.
 
@@ -150,4 +163,3 @@ Committed `sources/` files are public-safe synopsis projections: citation,
 identity, canonical public location, version, inspection basis, neutral account,
 hazards, and project use. They contain no source bytes, local artifact paths or
 digests, private links, credentials, or private correspondence.
-
