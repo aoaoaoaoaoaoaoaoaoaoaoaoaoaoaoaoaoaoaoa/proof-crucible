@@ -1,0 +1,5 @@
+protocol = 1
+campaign = "replace-me"
+ledger = "ledger/events"
+lean_profile = "strict"
+

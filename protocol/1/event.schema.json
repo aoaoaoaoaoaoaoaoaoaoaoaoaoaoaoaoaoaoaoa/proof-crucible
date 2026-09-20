@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eternalist.moe/proof-crucible/protocol/1/event.schema.json",
+  "title": "Proof Crucible Protocol 1 event",
+  "oneOf": [
+    { "$ref": "#/$defs/obligation" },
+    { "$ref": "#/$defs/attempt" },
+    { "$ref": "#/$defs/certificate" },
+    { "$ref": "#/$defs/withdrawal" }
+  ],
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_'.]*(?:\\.[A-Za-z_][A-Za-z0-9_']*)*$"
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^sources/[A-Za-z0-9][A-Za-z0-9._/-]*\\.md(?:#[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+    },
+    "shaList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sha" },
+      "uniqueItems": true
+    },
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "kind", "title", "statement", "module", "proposition", "requires", "sources"],
+      "properties": {
+        "protocol": { "const": 1 },
+        "kind": { "const": "obligation" },
+        "title": { "$ref": "#/$defs/text" },
+        "statement": { "$ref": "#/$defs/text" },
+        "module": { "$ref": "#/$defs/name" },
+        "proposition": { "$ref": "#/$defs/name" },
+        "requires": { "$ref": "#/$defs/shaList" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/source" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "kind", "target", "approach", "informed_by"],
+      "properties": {
+        "protocol": { "const": 1 },
+        "kind": { "const": "attempt" },
+        "target": { "$ref": "#/$defs/sha" },
+        "approach": { "$ref": "#/$defs/text" },
+        "informed_by": { "$ref": "#/$defs/shaList" }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "requires", "summary"],
+      "properties": {
+        "protocol": { "const": 1 },
+        "kind": { "const": "certificate" },
+        "target": { "$ref": "#/$defs/sha" },
+        "attempt": { "$ref": "#/$defs/sha" },
+        "polarity": { "enum": ["proves", "refutes"] },
+        "module": { "$ref": "#/$defs/name" },
+        "theorem": { "$ref": "#/$defs/name" },
+        "requires": { "$ref": "#/$defs/shaList" },
+        "summary": { "$ref": "#/$defs/text" }
+      }
+    },
+    "withdrawal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "kind", "attempt", "reason"],
+      "properties": {
+        "protocol": { "const": 1 },
+        "kind": { "const": "withdrawal" },
+        "attempt": { "$ref": "#/$defs/sha" },
+        "reason": { "$ref": "#/$defs/text" }
+      }
+    }
+  }
+}
+

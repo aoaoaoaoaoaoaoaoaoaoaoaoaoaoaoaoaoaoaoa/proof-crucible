@@ -1,0 +1,6 @@
+/.lake/
+/.worktrees/
+/_site/
+/references/
+__pycache__/
+
