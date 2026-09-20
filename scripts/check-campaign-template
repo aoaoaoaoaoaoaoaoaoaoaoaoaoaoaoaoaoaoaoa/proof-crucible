@@ -19,6 +19,15 @@ git -C "$SCRATCH" config user.email 'proof-crucible@example.invalid'
 git -C "$SCRATCH" config commit.gpgsign false
 git -C "$SCRATCH" -c protocol.file.allow=always submodule add --quiet "$ROOT" .crucible
 "$SCRATCH/.crucible/bin/crucible" --repo "$SCRATCH" init --campaign template-check
+
+# lean-action primes this checkout before the disposable campaign is created.
+# Reuse those exact pinned packages rather than compiling Mathlib a second time.
+if [[ -d "$ROOT/campaign-template/.lake/packages" ]]; then
+  PACKAGE_POOL="$(readlink -f -- "$SCRATCH/.lake/packages")"
+  readonly PACKAGE_POOL
+  cp -al -- "$ROOT/campaign-template/.lake/packages/." "$PACKAGE_POOL/"
+fi
+
 git -C "$SCRATCH" add .
 git -C "$SCRATCH" commit --quiet -m 'Initialize template check campaign'
 "$SCRATCH/scripts/check.sh"
