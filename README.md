@@ -61,6 +61,10 @@ The command atomically creates `attempt/$OBLIGATION` only if no contributor has
 already created it. The result is closed by a squash-merged certificate or
 withdrawal pull request; no custom lock or attempt record exists.
 
+`frontier` and `render` project the checked-out ledger. On an older attempt
+branch, fetched claims for later obligations are outside that snapshot and are
+not overlaid. Use synchronized `main` for the complete live campaign view.
+
 ## Distribution
 
 - [`protocol/1/PROTOCOL.md`](protocol/1/PROTOCOL.md) is the normative event and

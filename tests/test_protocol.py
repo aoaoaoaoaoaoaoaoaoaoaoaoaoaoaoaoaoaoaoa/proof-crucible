@@ -57,25 +57,26 @@ class Campaign:
         (self.root / path).write_text(json.dumps(event, indent=2) + "\n", encoding="utf-8")
         return self.commit(f"{event['kind']}: {name}", path, *additional_paths)
 
-    def obligation(self) -> str:
+    def obligation(self, name: str = "Target") -> str:
         (self.root / "Fixture").mkdir(exist_ok=True)
-        (self.root / "Fixture/Target.lean").write_text(
-            "namespace Fixture\ndef target : Prop := True\nend Fixture\n", encoding="utf-8"
+        formalization = f"Fixture/{name}.lean"
+        (self.root / formalization).write_text(
+            f"namespace Fixture\ndef {name.lower()} : Prop := True\nend Fixture\n", encoding="utf-8"
         )
         return self.event(
-            "target",
+            name.lower(),
             {
                 "protocol": 1,
                 "kind": "obligation",
                 "title": "Target",
                 "statement": "The target proposition holds.",
-                "module": "Fixture.Target",
-                "proposition": "Fixture.target",
-                "formalization": "Fixture/Target.lean",
+                "module": f"Fixture.{name}",
+                "proposition": f"Fixture.{name.lower()}",
+                "formalization": formalization,
                 "requires": [],
                 "sources": ["sources/source.md"],
             },
-            "Fixture/Target.lean",
+            formalization,
         )
 
 class ProtocolTests(unittest.TestCase):
@@ -185,6 +186,18 @@ class ProtocolTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("already has attempt/", result.stderr)
+
+        # Fetched sibling claims must not break a still-valid older proof branch.
+        run("git", "switch", "main", cwd=campaign.root)
+        later = campaign.obligation("Later")
+        run("git", "push", "origin", "main", cwd=campaign.root)
+        run(CRUCIBLE, "--repo", campaign.root, "claim", later,
+            "--approach", "Prove an independent later obligation.", cwd=campaign.root)
+        run("git", "switch", f"attempt/{target}", cwd=campaign.root)
+        run(CRUCIBLE, "--repo", campaign.root, "render", "--output", "_site", cwd=campaign.root)
+        graph = (campaign.root / "_site/graph.dot").read_text(encoding="utf-8")
+        self.assertIn(f'n{target} -> a{target} [label="claimed"]', graph)
+        self.assertNotIn(later, graph)
 
     def test_withdrawals_preserve_failed_approaches_without_settling(self) -> None:
         temporary, campaign = self.campaign()

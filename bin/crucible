@@ -502,6 +502,13 @@ def live_attempts(repo: Path, ledger: Ledger) -> dict[str, LiveAttempt]:
         sha_value(target, f"attempt branch {refname}")
         state = ledger.obligations.get(target)
         if state is None:
+            # A sibling obligation may land after this attempt forked. Overlay
+            # only targets in this snapshot; missing in-snapshot targets are errors.
+            ancestry = run(
+                "git", "merge-base", "--is-ancestor", target, "HEAD", cwd=repo, check=False
+            )
+            if ancestry.returncode == 1:
+                continue
             fail(f"attempt branch {refname} targets an absent obligation")
         if state.certificate is not None:
             continue
