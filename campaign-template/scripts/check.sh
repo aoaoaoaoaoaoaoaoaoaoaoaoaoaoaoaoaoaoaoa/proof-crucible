@@ -15,6 +15,7 @@ export LAKE_CACHE_DIR="${LAKE_CACHE_DIR-$cache_home/lake}"
 "$ROOT/.crucible/bin/crucible" lean-audit \
   --output .lake/build/crucible/LedgerAudit.lean
 lake --wfail build proofs
+lake env leanchecker Campaign Verification
 lake env lean \
   -DwarningAsError=true -DautoImplicit=false -Dpp.unicode.fun=true \
   -Dlinter.docPrime=true -Dlinter.hashCommand=true -Dlinter.oldObtain=true \

@@ -12,6 +12,8 @@ Lean code is warning-free and suppression-free:
 - automatic implicit variables are disabled;
 - every default mathlib environment linter runs over the whole first-party
   package;
+- the bundled `leanchecker` replays every first-party module's declarations
+  through Lean's kernel, detecting unchecked environment insertion;
 - every certificate theorem has its complete transitive axiom set compared
   byte-for-byte with a reviewed snapshot;
 - `sorry`, `admit`, project `axiom`s, `unsafe`, `partial`, `native_decide`,
@@ -64,7 +66,12 @@ The canonical campaign check must:
 3. scan every first-party Lean source for forbidden apertures;
 4. compile every first-party module with warnings as errors;
 5. run every default environment linter, including slow checks;
-6. compare the complete certificate axiom reports with the reviewed snapshot.
+6. compare the complete certificate axiom reports with the reviewed snapshot;
+7. run `lake env leanchecker <library>...` for every first-party library.
+
+`leanchecker` reuses Lean's kernel; it is not an independent proof assistant.
+Keep its library roots synchronized with the complete build/linter scope when
+adding or renaming a library. The generated exact-type audit is still required.
 
 Changing the snapshot is a mathematical review action, never blind generated
 cleanup.
