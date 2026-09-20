@@ -30,6 +30,15 @@ shipped branch protection:
 scripts/apply-github-rules
 ```
 
+Private GitHub campaigns require an account plan that supports branch
+protection. If applying the rules fails, the repository is not yet an
+autonomous, protocol-conforming campaign: do not silently substitute unchecked
+merges or change its visibility. Enable a supporting plan before unattended
+multi-user operation.
+
+The check script uses the toolchain installation selected by `elan`; it does
+not relocate `ELAN_HOME` or install a second copy of Lean in CI.
+
 `init` installs the repository's shared-Lake-package worktree hook. After a
 fresh recursive clone, run `scripts/share-lake-packages.sh --install` once.
 

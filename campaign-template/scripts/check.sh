@@ -3,7 +3,6 @@ set -euo pipefail
 
 readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$ROOT"
-export ELAN_HOME="${ELAN_HOME:-$HOME/.local/share/elan}"
 case "${XDG_CACHE_HOME:-}" in
   /*) cache_home="$XDG_CACHE_HOME" ;;
   *) cache_home="$HOME/.cache" ;;

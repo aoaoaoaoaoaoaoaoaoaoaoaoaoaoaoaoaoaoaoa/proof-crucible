@@ -16,6 +16,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +28,9 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           auto-config: false
+          build: false
+          test: false
+          lint: false
           use-mathlib-cache: true
       - name: Install Graphviz
         run: sudo apt-get update && sudo apt-get install --yes graphviz
