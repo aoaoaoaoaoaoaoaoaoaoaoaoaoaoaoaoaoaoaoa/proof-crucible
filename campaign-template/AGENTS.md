@@ -39,6 +39,8 @@ model output.
 ## Git
 
 Every ledger node is the squash commit that first adds one event. Existing
-events are immutable. Open and merge an attempt before beginning material proof
-work; close every merged attempt with a certificate or withdrawal. Strict
-up-to-date required checks are the only lock.
+events are immutable. Fetch `main` and every remote `attempt/*` ref, then use
+`.crucible/bin/crucible claim <full-obligation-sha> --approach '<method>'`
+before material work. The deterministic branch is the atomic claim; there is no
+attempt event or secondary lock. Close it through a squash-merged certificate
+or withdrawal pull request. Keep the claim commit and one result commit only.

@@ -2,7 +2,9 @@ name: Check
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "attempt/**"
   pull_request:
     branches: [main]
   merge_group:
@@ -19,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch live attempt refs
+        run: git fetch --prune origin '+refs/heads/attempt/*:refs/remotes/origin/attempt/*'
       - uses: leanprover/lean-action@v1
         with:
           auto-config: false

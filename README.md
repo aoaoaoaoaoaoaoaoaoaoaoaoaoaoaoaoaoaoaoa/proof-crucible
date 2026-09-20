@@ -2,9 +2,10 @@
 
 Proof Crucible is a Git-native protocol for concurrent, formally checked
 mathematical research. A campaign records formal obligations, exclusive proof
-attempts, Lean certificates, and withdrawals as append-only Git commits. Git
-owns truth; the validator, Codex skill, frontier view, and static DAG are
-projections.
+results, and failed approaches as append-only Git commits. Deterministic remote
+branches are the live claims. Git owns identity, time, synchronization,
+admission, and version pins; the validator, Codex skill, frontier view, and
+static DAG are projections.
 
 ## Campaign integration
 
@@ -41,10 +42,20 @@ git submodule update --init --recursive
 The gitlink pins exact bytes. Signed release tags describe distribution
 versions; campaign correctness never depends on a mutable tag or branch.
 
+To claim a ready obligation, use its full node ID:
+
+```console
+.crucible/bin/crucible claim "$OBLIGATION" --approach 'state the method'
+```
+
+The command atomically creates `attempt/$OBLIGATION` only if no contributor has
+already created it. The result is closed by a squash-merged certificate or
+withdrawal pull request; no custom lock or attempt record exists.
+
 ## Distribution
 
 - [`protocol/1/PROTOCOL.md`](protocol/1/PROTOCOL.md) is the normative event and
-  synchronization contract.
+  Git synchronization contract.
 - [`.agents/skills/proof-crucible/SKILL.md`](.agents/skills/proof-crucible/SKILL.md)
   is the Codex operating method.
 - `bin/crucible` validates and projects a campaign without third-party Python

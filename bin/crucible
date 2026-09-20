@@ -27,8 +27,11 @@ SOURCE = re.compile(
 LEAN_SOURCE = re.compile(
     r"(?:[A-Za-z0-9_][A-Za-z0-9._-]*/)*[A-Za-z0-9_][A-Za-z0-9._-]*\.lean\Z"
 )
-KINDS = frozenset({"obligation", "attempt", "certificate", "withdrawal"})
+KINDS = frozenset({"obligation", "certificate", "withdrawal"})
 PROTOCOL = 1
+LEDGER = Path("ledger/events")
+AXIOM_SNAPSHOT = Path("verification/axioms.txt")
+ATTEMPT_PREFIX = "attempt/"
 
 
 class CrucibleError(Exception):
@@ -38,9 +41,6 @@ class CrucibleError(Exception):
 @dataclass(frozen=True)
 class Config:
     campaign: str
-    ledger: Path
-    lean_profile: str
-    axiom_snapshot: Path
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,6 @@ class Node:
 @dataclass
 class ObligationState:
     node: Node
-    active_attempt: str | None = None
     certificate: str | None = None
 
 
@@ -65,22 +64,35 @@ class ObligationState:
 class Ledger:
     nodes: list[Node]
     obligations: dict[str, ObligationState]
-    attempts: dict[str, Node]
     certificates: dict[str, Node]
     withdrawals: dict[str, Node]
+
+
+@dataclass(frozen=True)
+class LiveAttempt:
+    target: str
+    branch: str
+    tip: str
+    approach: str
 
 
 def fail(message: str) -> NoReturn:
     raise CrucibleError(message)
 
 
-def run(*argv: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    *argv: str,
+    cwd: Path,
+    check: bool = True,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         argv,
         cwd=cwd,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        input=input_text,
         check=False,
     )
     if check and result.returncode:
@@ -103,20 +115,14 @@ def load_config(repo: Path) -> Config:
         fail("missing crucible.toml")
     except tomllib.TOMLDecodeError as error:
         fail(f"invalid crucible.toml: {error}")
-    expected = {"protocol", "campaign", "ledger", "lean_profile", "axiom_snapshot"}
+    expected = {"protocol", "campaign"}
     if set(raw) != expected:
         fail(f"crucible.toml must contain exactly {', '.join(sorted(expected))}")
     if raw["protocol"] != PROTOCOL:
         fail(f"unsupported emitted protocol {raw['protocol']!r}; this distribution supports {PROTOCOL}")
     if not isinstance(raw["campaign"], str) or not raw["campaign"].strip():
         fail("campaign must be non-empty text")
-    if raw["lean_profile"] != "strict":
-        fail("Protocol 1 campaigns require lean_profile = \"strict\"")
-    ledger = safe_relative(raw["ledger"], "ledger")
-    snapshot = safe_relative(raw["axiom_snapshot"], "axiom_snapshot")
-    if snapshot.suffix != ".txt":
-        fail("axiom_snapshot must name a .txt file")
-    return Config(raw["campaign"], ledger, raw["lean_profile"], snapshot)
+    return Config(raw["campaign"])
 
 
 def safe_relative(value: object, field: str) -> Path:
@@ -137,11 +143,11 @@ def doctor(repo: Path) -> Config:
     shallow = run("git", "rev-parse", "--is-shallow-repository", cwd=repo).stdout.strip()
     if shallow != "false":
         fail("campaign clone is shallow; full history is required to verify the ledger")
-    ledger = repo / config.ledger
+    ledger = repo / LEDGER
     if not ledger.is_dir():
-        fail(f"missing ledger directory {config.ledger}")
-    if not (repo / config.axiom_snapshot).is_file():
-        fail(f"missing reviewed axiom snapshot {config.axiom_snapshot}")
+        fail(f"missing ledger directory {LEDGER}")
+    if not (repo / AXIOM_SNAPSHOT).is_file():
+        fail(f"missing reviewed axiom snapshot {AXIOM_SNAPSHOT}")
     ignored = run(
         "git",
         "check-ignore",
@@ -283,15 +289,10 @@ def validate_event(repo: Path, path: Path, raw: object) -> dict[str, Any]:
         normalized = [validate_source(repo, source, "sources[]") for source in sources]
         if len(normalized) != len(set(normalized)):
             fail("sources contains duplicates")
-    elif kind == "attempt":
-        exact_keys(event, {"protocol", "kind", "target", "approach", "informed_by"}, path)
+    elif kind == "certificate":
+        exact_keys(event, {"protocol", "kind", "target", "approach", "polarity", "module", "theorem", "proof", "requires", "summary"}, path)
         sha_value(event["target"], "target")
         non_empty(event["approach"], "approach")
-        sha_list(event["informed_by"], "informed_by")
-    elif kind == "certificate":
-        exact_keys(event, {"protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "proof", "requires", "summary"}, path)
-        sha_value(event["target"], "target")
-        sha_value(event["attempt"], "attempt")
         if event["polarity"] not in {"proves", "refutes"}:
             fail("polarity must be proves or refutes")
         lean_name(event["module"], "module")
@@ -300,20 +301,21 @@ def validate_event(repo: Path, path: Path, raw: object) -> dict[str, Any]:
         sha_list(event["requires"], "requires")
         non_empty(event["summary"], "summary")
     else:
-        exact_keys(event, {"protocol", "kind", "attempt", "reason"}, path)
-        sha_value(event["attempt"], "attempt")
+        exact_keys(event, {"protocol", "kind", "target", "approach", "reason"}, path)
+        sha_value(event["target"], "target")
+        non_empty(event["approach"], "approach")
         non_empty(event["reason"], "reason")
     return event
 
 
-def event_files(repo: Path, config: Config) -> list[Path]:
+def event_files(repo: Path) -> list[Path]:
     listed = run(
-        "git", "ls-tree", "-r", "--name-only", "HEAD", "--", git_path(config.ledger), cwd=repo
+        "git", "ls-tree", "-r", "--name-only", "HEAD", "--", git_path(LEDGER), cwd=repo
     ).stdout.splitlines()
     files = sorted(Path(path) for path in listed if path.endswith(".json"))
     for path in files:
-        if path.parent != config.ledger:
-            fail(f"event files must live directly in {config.ledger}: {path}")
+        if path.parent != LEDGER:
+            fail(f"event files must live directly in {LEDGER}: {path}")
         if not EVENT_NAME.fullmatch(path.name):
             fail(f"invalid event filename {path.name!r}; use lowercase kebab-case")
     return files
@@ -328,7 +330,7 @@ def introducing_commit(repo: Path, path: Path) -> str:
     return commits[0]
 
 
-def reject_event_mutation(repo: Path, config: Config) -> None:
+def reject_event_mutation(repo: Path) -> None:
     output = run(
         "git",
         "log",
@@ -336,7 +338,7 @@ def reject_event_mutation(repo: Path, config: Config) -> None:
         "--name-status",
         "--find-renames",
         "--",
-        git_path(config.ledger),
+        git_path(LEDGER),
         cwd=repo,
     ).stdout
     for line in output.splitlines():
@@ -360,21 +362,21 @@ def immutable_since(repo: Path, commit: str, path: str) -> None:
         fail(f"obligation formalization {path} changed after node {commit}; create a new obligation")
 
 
-def read_ledger(repo: Path, config: Config) -> Ledger:
+def read_ledger(repo: Path) -> Ledger:
     dirty = run(
-        "git", "status", "--porcelain", "--untracked-files=all", "--", git_path(config.ledger), cwd=repo
+        "git", "status", "--porcelain", "--untracked-files=all", "--", git_path(LEDGER), cwd=repo
     ).stdout.strip()
     if dirty:
         fail(f"ledger worktree is dirty: {dirty.splitlines()[0]}")
     merges = run("git", "rev-list", "--merges", "HEAD", cwd=repo).stdout.strip()
     if merges:
         fail(f"campaign history is not linear; merge commit {merges.splitlines()[0]} is reachable")
-    reject_event_mutation(repo, config)
+    reject_event_mutation(repo)
     order = run("git", "rev-list", "--reverse", "--topo-order", "HEAD", cwd=repo).stdout.splitlines()
     position = {sha: index for index, sha in enumerate(order)}
     additions: dict[str, list[Path]] = {}
     nodes: list[Node] = []
-    for path in event_files(repo, config):
+    for path in event_files(repo):
         sha = introducing_commit(repo, path)
         additions.setdefault(sha, []).append(path)
         try:
@@ -390,7 +392,6 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
     nodes.sort(key=lambda node: position[node.sha])
     seen: dict[str, Node] = {}
     obligations: dict[str, ObligationState] = {}
-    attempts: dict[str, Node] = {}
     certificates: dict[str, Node] = {}
     withdrawals: dict[str, Node] = {}
     propositions: set[str] = set()
@@ -417,25 +418,9 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
                 fail(f"obligation node {node.sha} does not add or change {event['formalization']}")
             immutable_since(repo, node.sha, event["formalization"])
             obligations[node.sha] = ObligationState(node)
-        elif kind == "attempt":
-            target = prior(event["target"], "target", {"obligation"})
-            state = obligations[target.sha]
-            if state.certificate is not None:
-                fail(f"attempt targets settled obligation {target.sha}")
-            if state.active_attempt is not None:
-                fail(f"attempt duplicates live attempt {state.active_attempt} on {target.sha}")
-            for reference in event["informed_by"]:
-                prior(reference, "informed_by[]")
-            state.active_attempt = node.sha
-            attempts[node.sha] = node
         elif kind == "certificate":
             target = prior(event["target"], "target", {"obligation"})
-            attempt = prior(event["attempt"], "attempt", {"attempt"})
             state = obligations[target.sha]
-            if attempt.event["target"] != target.sha:
-                fail(f"certificate attempt {attempt.sha} targets another obligation")
-            if state.active_attempt != attempt.sha:
-                fail(f"certificate names non-live attempt {attempt.sha}")
             if state.certificate is not None:
                 fail(f"obligation {target.sha} is already settled")
             for reference in event["requires"]:
@@ -445,18 +430,16 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
             if not commit_changes_path(repo, node.sha, event["proof"]):
                 fail(f"certificate node {node.sha} does not add or change {event['proof']}")
             theorems.add(event["theorem"])
-            state.active_attempt = None
             state.certificate = node.sha
             certificates[node.sha] = node
         else:
-            attempt = prior(event["attempt"], "attempt", {"attempt"})
-            state = obligations[attempt.event["target"]]
-            if state.active_attempt != attempt.sha:
-                fail(f"withdrawal names non-live attempt {attempt.sha}")
-            state.active_attempt = None
+            target = prior(event["target"], "target", {"obligation"})
+            state = obligations[target.sha]
+            if state.certificate is not None:
+                fail(f"withdrawal targets settled obligation {target.sha}")
             withdrawals[node.sha] = node
         seen[node.sha] = node
-    snapshot_text = run("git", "show", f"HEAD:{git_path(config.axiom_snapshot)}", cwd=repo).stdout
+    snapshot_text = run("git", "show", f"HEAD:{git_path(AXIOM_SNAPSHOT)}", cwd=repo).stdout
     snapshotted = {
         line.split("'", 2)[1]
         for line in snapshot_text.splitlines()
@@ -465,21 +448,138 @@ def read_ledger(repo: Path, config: Config) -> Ledger:
     missing = sorted(node.event["theorem"] for node in certificates.values() if node.event["theorem"] not in snapshotted)
     if missing:
         fail(f"certificate theorems absent from reviewed axiom snapshot: {', '.join(missing)}")
-    return Ledger(nodes, obligations, attempts, certificates, withdrawals)
+    return Ledger(nodes, obligations, certificates, withdrawals)
 
 
 def check_command(repo: Path) -> Ledger:
-    config = load_config(repo)
-    ledger = read_ledger(repo, config)
+    load_config(repo)
+    ledger = read_ledger(repo)
     counts = {kind: sum(node.kind == kind for node in ledger.nodes) for kind in sorted(KINDS)}
     rendered = ", ".join(f"{kind}={count}" for kind, count in counts.items())
     print(f"ledger: protocol {PROTOCOL}: {rendered}")
     return ledger
 
 
+def claim_message(target: str, title: str, approach: str) -> str:
+    return (
+        f"attempt({target[:12]}): {title}\n\n"
+        f"{approach.strip()}\n\n"
+        f"Crucible-Obligation: {target}\n"
+    )
+
+
+def claim_approach(repo: Path, target: str, tip: str) -> str:
+    remote_main = run(
+        "git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main", cwd=repo, check=False
+    )
+    main_ref = "refs/remotes/origin/main" if remote_main.returncode == 0 else "main"
+    base = run("git", "merge-base", main_ref, tip, cwd=repo).stdout.strip()
+    commits = run(
+        "git", "rev-list", "--reverse", "--first-parent", f"{base}..{tip}", cwd=repo
+    ).stdout.splitlines()
+    if not commits:
+        fail(f"attempt/{target} contains no claim commit")
+    message = run("git", "show", "-s", "--format=%B", commits[0], cwd=repo).stdout
+    trailer = re.search(r"(?m)^Crucible-Obligation: ([0-9a-f]+)$", message)
+    if trailer is None or trailer.group(1) != target:
+        fail(f"attempt/{target} claim commit lacks its exact Crucible-Obligation trailer")
+    lines = message[: trailer.start()].splitlines()[1:]
+    approach = "\n".join(lines).strip()
+    return non_empty(approach, f"attempt/{target} approach")
+
+
+def live_attempts(repo: Path, ledger: Ledger) -> dict[str, LiveAttempt]:
+    has_origin = run("git", "remote", "get-url", "origin", cwd=repo, check=False).returncode == 0
+    ref_root = "refs/remotes/origin/attempt" if has_origin else "refs/heads/attempt"
+    output = run(
+        "git", "for-each-ref", "--format=%(refname) %(objectname)", ref_root, cwd=repo
+    ).stdout
+    attempts: dict[str, LiveAttempt] = {}
+    prefix = ref_root + "/"
+    for line in output.splitlines():
+        refname, tip = line.split(" ", 1)
+        target = refname.removeprefix(prefix)
+        sha_value(target, f"attempt branch {refname}")
+        state = ledger.obligations.get(target)
+        if state is None:
+            fail(f"attempt branch {refname} targets an absent obligation")
+        if state.certificate is not None:
+            continue
+        branch = ATTEMPT_PREFIX + target
+        attempts[target] = LiveAttempt(target, branch, tip, claim_approach(repo, target, tip))
+    return attempts
+
+
+def claim(repo: Path, target: str, approach: str) -> None:
+    sha_value(target, "target")
+    non_empty(approach, "approach")
+    if run("git", "remote", "get-url", "origin", cwd=repo, check=False).returncode:
+        fail("claim requires an origin remote")
+    dirty = run("git", "status", "--porcelain", "--untracked-files=all", cwd=repo).stdout.strip()
+    if dirty:
+        fail(f"worktree must be clean before claim: {dirty.splitlines()[0]}")
+    branch = ATTEMPT_PREFIX + target
+    local_ref = "refs/heads/" + branch
+    if run("git", "show-ref", "--verify", "--quiet", local_ref, cwd=repo, check=False).returncode == 0:
+        fail(f"local branch {branch} already exists")
+    run(
+        "git",
+        "fetch",
+        "--prune",
+        "origin",
+        "main",
+        "+refs/heads/attempt/*:refs/remotes/origin/attempt/*",
+        cwd=repo,
+    )
+    current = run("git", "symbolic-ref", "--short", "HEAD", cwd=repo, check=False)
+    if current.returncode or current.stdout.strip() != "main":
+        fail("claim must begin on local main")
+    head = run("git", "rev-parse", "HEAD", cwd=repo).stdout.strip()
+    upstream = run("git", "rev-parse", "refs/remotes/origin/main", cwd=repo).stdout.strip()
+    if head != upstream:
+        fail("local main must exactly equal origin/main before claim")
+    load_config(repo)
+    ledger = read_ledger(repo)
+    state = ledger.obligations.get(target)
+    if state is None:
+        fail(f"target is not an obligation in origin/main: {target}")
+    if state.certificate is not None:
+        fail(f"target obligation is already settled: {target}")
+    if target in live_attempts(repo, ledger):
+        fail(f"target obligation already has {branch}")
+    tree = run("git", "show", "-s", "--format=%T", "HEAD", cwd=repo).stdout.strip()
+    commit_argv = ["git", "commit-tree", tree, "-p", head]
+    signing = run("git", "config", "--bool", "commit.gpgsign", cwd=repo, check=False)
+    if signing.returncode == 0 and signing.stdout.strip() == "true":
+        commit_argv.append("-S")
+    commit = run(
+        *commit_argv,
+        cwd=repo,
+        input_text=claim_message(target, state.node.event["title"], approach),
+    ).stdout.strip()
+    remote_ref = "refs/heads/" + branch
+    pushed = run(
+        "git",
+        "push",
+        f"--force-with-lease={remote_ref}:",
+        "origin",
+        f"{commit}:{remote_ref}",
+        cwd=repo,
+        check=False,
+    )
+    if pushed.returncode:
+        detail = pushed.stderr.strip() or pushed.stdout.strip()
+        fail(f"atomic claim lost or push failed: {detail}")
+    tracking_ref = "refs/remotes/origin/" + branch
+    run("git", "update-ref", tracking_ref, commit, cwd=repo)
+    run("git", "switch", "--track", "-c", branch, tracking_ref, cwd=repo)
+    print(f"claim: {target}: {branch}")
+
+
 def frontier(repo: Path) -> None:
-    config = load_config(repo)
-    ledger = read_ledger(repo, config)
+    load_config(repo)
+    ledger = read_ledger(repo)
+    attempts = live_attempts(repo, ledger)
     if not ledger.obligations:
         print("frontier: empty; execute CAMPAIGN.md's mandatory first step")
         return
@@ -489,9 +589,9 @@ def frontier(repo: Path) -> None:
             certificate = ledger.certificates[state.certificate]
             status = certificate.event["polarity"].upper()
             detail = certificate.event["theorem"]
-        elif state.active_attempt:
+        elif sha in attempts:
             status = "ACTIVE"
-            detail = ledger.attempts[state.active_attempt].event["approach"]
+            detail = attempts[sha].approach
         else:
             status = "READY"
             detail = state.node.event["proposition"]
@@ -499,8 +599,8 @@ def frontier(repo: Path) -> None:
 
 
 def lean_audit(repo: Path, output: Path) -> None:
-    config = load_config(repo)
-    ledger = read_ledger(repo, config)
+    load_config(repo)
+    ledger = read_ledger(repo)
     modules = sorted({node.event["module"] for node in ledger.nodes if "module" in node.event})
     lines = ["import Mathlib", *(f"import {module}" for module in modules), "", "set_option autoImplicit false", "", "namespace CrucibleLedgerAudit", ""]
     for sha, state in ledger.obligations.items():
@@ -535,7 +635,8 @@ def dot_escape(value: str) -> str:
 
 def render(repo: Path, output: Path) -> None:
     config = load_config(repo)
-    ledger = read_ledger(repo, config)
+    ledger = read_ledger(repo)
+    attempts = live_attempts(repo, ledger)
     output = output if output.is_absolute() else repo / output
     output.mkdir(parents=True, exist_ok=True)
     web = github_url(repo)
@@ -549,39 +650,41 @@ def render(repo: Path, output: Path) -> None:
         event = node.event
         if node.kind == "obligation":
             state = ledger.obligations[node.sha]
-            status = "settled" if state.certificate else "active" if state.active_attempt else "ready"
+            status = "settled" if state.certificate else "active" if node.sha in attempts else "ready"
             title = event["title"]
         elif node.kind == "certificate":
             status = event["polarity"]
             title = event["theorem"]
-        elif node.kind == "attempt":
-            closed = any(item.event.get("attempt") == node.sha for item in ledger.nodes)
-            status = "closed" if closed else "live"
-            title = event["approach"]
         else:
-            status = "closed"
-            title = event["reason"]
+            status = "withdrawn"
+            title = event["approach"]
         label = dot_escape(f"{node.kind.upper()} · {status}\n{title}\n{node.sha[:12]}")
         attrs = [f'label="{label}"']
         if web:
             attrs.append(f'URL="{web}/commit/{node.sha}"')
             attrs.append('target="_top"')
         lines.append(f"  n{node.sha} [{', '.join(attrs)}];")
+    for target, attempt in attempts.items():
+        label = dot_escape(f"ATTEMPT · live\n{attempt.approach}\n{attempt.tip[:12]}")
+        attrs = [f'label="{label}"']
+        if web:
+            attrs.append(f'URL="{web}/tree/{attempt.branch}"')
+            attrs.append('target="_top"')
+        lines.append(f"  a{target} [{', '.join(attrs)}];")
     for node in ledger.nodes:
         event = node.event
         edges: list[tuple[str, str]] = []
         if node.kind == "obligation":
             edges.extend((parent, "requires") for parent in event["requires"])
-        elif node.kind == "attempt":
-            edges.append((event["target"], "targets"))
-            edges.extend((parent, "informed") for parent in event["informed_by"])
         elif node.kind == "certificate":
-            edges.extend(((event["target"], "settles"), (event["attempt"], "closes")))
+            edges.append((event["target"], "settles"))
             edges.extend((parent, "requires") for parent in event["requires"])
         else:
-            edges.append((event["attempt"], "withdraws"))
+            edges.append((event["target"], "withdraws"))
         for parent, label in edges:
             lines.append(f'  n{parent} -> n{node.sha} [label="{label}"];')
+    for target in attempts:
+        lines.append(f'  n{target} -> a{target} [label="claimed"];')
     lines.append("}")
     dot = output / "graph.dot"
     svg = output / "graph.svg"
@@ -610,6 +713,9 @@ def parse_args() -> argparse.Namespace:
     commands.add_parser("doctor")
     commands.add_parser("check")
     commands.add_parser("frontier")
+    take = commands.add_parser("claim")
+    take.add_argument("target")
+    take.add_argument("--approach", required=True)
     audit = commands.add_parser("lean-audit")
     audit.add_argument("--output", type=Path, required=True)
     page = commands.add_parser("render")
@@ -629,6 +735,8 @@ def main() -> int:
             check_command(repo)
         elif arguments.command == "frontier":
             frontier(repo)
+        elif arguments.command == "claim":
+            claim(repo, arguments.target, arguments.approach)
         elif arguments.command == "lean-audit":
             lean_audit(repo, arguments.output)
         elif arguments.command == "render":

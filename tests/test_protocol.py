@@ -35,8 +35,7 @@ class Campaign:
         (root / "sources").mkdir()
         (root / "verification").mkdir()
         (root / "crucible.toml").write_text(
-            'protocol = 1\ncampaign = "fixture"\nledger = "ledger/events"\n'
-            'lean_profile = "strict"\naxiom_snapshot = "verification/axioms.txt"\n',
+            'protocol = 1\ncampaign = "fixture"\n',
             encoding="utf-8",
         )
         (root / ".gitignore").write_text("/references/\n/_site/\n", encoding="utf-8")
@@ -79,19 +78,6 @@ class Campaign:
             "Fixture/Target.lean",
         )
 
-    def attempt(self, target: str, name: str = "attack") -> str:
-        return self.event(
-            name,
-            {
-                "protocol": 1,
-                "kind": "attempt",
-                "target": target,
-                "approach": "Construct the witness directly.",
-                "informed_by": [],
-            },
-        )
-
-
 class ProtocolTests(unittest.TestCase):
     def campaign(self) -> tuple[tempfile.TemporaryDirectory[str], Campaign]:
         temporary = tempfile.TemporaryDirectory()
@@ -101,7 +87,6 @@ class ProtocolTests(unittest.TestCase):
         temporary, campaign = self.campaign()
         self.addCleanup(temporary.cleanup)
         target = campaign.obligation()
-        attempt = campaign.attempt(target)
         (campaign.root / "Fixture/Result.lean").write_text(
             "namespace Fixture\ntheorem target_proved : target := trivial\nend Fixture\n", encoding="utf-8"
         )
@@ -116,7 +101,7 @@ class ProtocolTests(unittest.TestCase):
                 "protocol": 1,
                 "kind": "certificate",
                 "target": target,
-                "attempt": attempt,
+                "approach": "Construct the witness directly.",
                 "polarity": "proves",
                 "module": "Fixture.Result",
                 "theorem": "Fixture.target_proved",
@@ -150,15 +135,75 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue((root / ".github/workflows/check.yml").is_file())
         self.assertTrue((root / ".agents/skills/proof-crucible").is_symlink())
 
-    def test_concurrent_attempt_is_rejected_after_reconciliation(self) -> None:
+    def test_attempt_branch_claim_is_atomic(self) -> None:
         temporary, campaign = self.campaign()
         self.addCleanup(temporary.cleanup)
         target = campaign.obligation()
-        campaign.attempt(target, "first")
-        campaign.attempt(target, "second")
-        result = run(CRUCIBLE, "--repo", campaign.root, "check", cwd=campaign.root, check=False)
+
+        remote_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(remote_temporary.cleanup)
+        remote = Path(remote_temporary.name) / "campaign.git"
+        run("git", "init", "--bare", "-b", "main", remote, cwd=campaign.root)
+        run("git", "remote", "add", "origin", remote, cwd=campaign.root)
+        run("git", "push", "--set-upstream", "origin", "main", cwd=campaign.root)
+
+        run(
+            CRUCIBLE,
+            "--repo",
+            campaign.root,
+            "claim",
+            target,
+            "--approach",
+            "Construct the witness directly.",
+            cwd=campaign.root,
+        )
+        current = run("git", "branch", "--show-current", cwd=campaign.root).stdout.strip()
+        self.assertEqual(current, f"attempt/{target}")
+        frontier = run(CRUCIBLE, "--repo", campaign.root, "frontier", cwd=campaign.root)
+        self.assertIn(f"ACTIVE   {target}", frontier.stdout)
+        run(CRUCIBLE, "--repo", campaign.root, "render", "--output", "_site", cwd=campaign.root)
+        graph = (campaign.root / "_site/graph.dot").read_text(encoding="utf-8")
+        self.assertIn("ATTEMPT · live", graph)
+        self.assertIn(f'n{target} -> a{target} [label="claimed"]', graph)
+
+        rival_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(rival_temporary.cleanup)
+        rival = Path(rival_temporary.name)
+        run("git", "clone", remote, rival, cwd=campaign.root)
+        run("git", "config", "user.name", "Rival", cwd=rival)
+        run("git", "config", "user.email", "rival@example.invalid", cwd=rival)
+        result = run(
+            CRUCIBLE,
+            "--repo",
+            rival,
+            "claim",
+            target,
+            "--approach",
+            "Try the same target concurrently.",
+            cwd=rival,
+            check=False,
+        )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("duplicates live attempt", result.stderr)
+        self.assertIn("already has attempt/", result.stderr)
+
+    def test_withdrawals_preserve_failed_approaches_without_settling(self) -> None:
+        temporary, campaign = self.campaign()
+        self.addCleanup(temporary.cleanup)
+        target = campaign.obligation()
+        for index in (1, 2):
+            campaign.event(
+                f"withdrawal-{index}",
+                {
+                    "protocol": 1,
+                    "kind": "withdrawal",
+                    "target": target,
+                    "approach": f"Attempt method {index}.",
+                    "reason": "The method requires an unavailable hypothesis.",
+                },
+            )
+        run(CRUCIBLE, "--repo", campaign.root, "check", cwd=campaign.root)
+        frontier = run(CRUCIBLE, "--repo", campaign.root, "frontier", cwd=campaign.root)
+        self.assertIn(f"READY    {target}", frontier.stdout)
 
     def test_event_mutation_is_rejected_even_when_current_json_is_valid(self) -> None:
         temporary, campaign = self.campaign()

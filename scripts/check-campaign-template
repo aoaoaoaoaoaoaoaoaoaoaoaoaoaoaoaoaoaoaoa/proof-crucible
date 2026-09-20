@@ -3,8 +3,15 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 readonly ROOT
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/proof-crucible-campaign.XXXXXXXX")"
+case "${XDG_CACHE_HOME:-}" in
+  /*) CACHE_HOME="$XDG_CACHE_HOME" ;;
+  *) CACHE_HOME="$HOME/.cache" ;;
+esac
+readonly CACHE_HOME
+mkdir -p -- "$CACHE_HOME/proof-crucible"
+SCRATCH="$(mktemp -d "$CACHE_HOME/proof-crucible/campaign.XXXXXXXX")"
 readonly SCRATCH
+trap 'rm -rf -- "$SCRATCH"' EXIT
 
 git -C "$SCRATCH" init -b main --quiet
 git -C "$SCRATCH" config user.name 'Proof Crucible Check'
@@ -15,5 +22,4 @@ git -C "$SCRATCH" -c protocol.file.allow=always submodule add --quiet "$ROOT" .c
 git -C "$SCRATCH" add .
 git -C "$SCRATCH" commit --quiet -m 'Initialize template check campaign'
 "$SCRATCH/scripts/check.sh"
-printf 'campaign-template: ok (%s)\n' "$SCRATCH"
-
+printf 'campaign-template: ok\n'

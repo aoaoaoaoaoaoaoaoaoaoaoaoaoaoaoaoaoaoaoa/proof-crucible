@@ -20,11 +20,14 @@ from pathlib import Path
 root = Path.cwd()
 schema = json.loads((root / "protocol/1/event.schema.json").read_text())
 assert schema["$defs"]["obligation"]["properties"]["protocol"]["const"] == 1
+assert "attempt" not in schema["$defs"]
 runtime = runpy.run_path(root / "bin/crucible")
+assert runtime["KINDS"] == frozenset({"obligation", "certificate", "withdrawal"})
+name_pattern = re.compile(schema["$defs"]["name"]["pattern"])
 for value in ("Foo.Bar", "Foo_bar.baz'", "A"):
-    assert runtime["LEAN_NAME"].fullmatch(value)
+    assert name_pattern.fullmatch(value) and runtime["LEAN_NAME"].fullmatch(value)
 for value in ("Foo..Bar", "Foo.", "Foo.1"):
-    assert not runtime["LEAN_NAME"].fullmatch(value)
+    assert not name_pattern.fullmatch(value) and not runtime["LEAN_NAME"].fullmatch(value)
 source_pattern = re.compile(schema["$defs"]["source"]["pattern"])
 for value in ("sources/a.md", "sources/topic/a-1.md#theorem-2"):
     assert source_pattern.fullmatch(value) and runtime["SOURCE"].fullmatch(value)

@@ -4,7 +4,6 @@
   "title": "Proof Crucible Protocol 1 event",
   "oneOf": [
     { "$ref": "#/$defs/obligation" },
-    { "$ref": "#/$defs/attempt" },
     { "$ref": "#/$defs/certificate" },
     { "$ref": "#/$defs/withdrawal" }
   ],
@@ -20,7 +19,7 @@
     },
     "name": {
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_'.]*(?:\\.[A-Za-z_][A-Za-z0-9_']*)*$"
+      "pattern": "^[A-Za-z_][A-Za-z0-9_']*(?:\\.[A-Za-z_][A-Za-z0-9_']*)*$"
     },
     "source": {
       "type": "string",
@@ -56,27 +55,15 @@
         }
       }
     },
-    "attempt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["protocol", "kind", "target", "approach", "informed_by"],
-      "properties": {
-        "protocol": { "const": 1 },
-        "kind": { "const": "attempt" },
-        "target": { "$ref": "#/$defs/sha" },
-        "approach": { "$ref": "#/$defs/text" },
-        "informed_by": { "$ref": "#/$defs/shaList" }
-      }
-    },
     "certificate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "kind", "target", "attempt", "polarity", "module", "theorem", "proof", "requires", "summary"],
+      "required": ["protocol", "kind", "target", "approach", "polarity", "module", "theorem", "proof", "requires", "summary"],
       "properties": {
         "protocol": { "const": 1 },
         "kind": { "const": "certificate" },
         "target": { "$ref": "#/$defs/sha" },
-        "attempt": { "$ref": "#/$defs/sha" },
+        "approach": { "$ref": "#/$defs/text" },
         "polarity": { "enum": ["proves", "refutes"] },
         "module": { "$ref": "#/$defs/name" },
         "theorem": { "$ref": "#/$defs/name" },
@@ -88,11 +75,12 @@
     "withdrawal": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "kind", "attempt", "reason"],
+      "required": ["protocol", "kind", "target", "approach", "reason"],
       "properties": {
         "protocol": { "const": 1 },
         "kind": { "const": "withdrawal" },
-        "attempt": { "$ref": "#/$defs/sha" },
+        "target": { "$ref": "#/$defs/sha" },
+        "approach": { "$ref": "#/$defs/text" },
         "reason": { "$ref": "#/$defs/text" }
       }
     }
