@@ -29,7 +29,11 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           auto-config: false
+          build: false
+          test: false
+          lint: false
           use-mathlib-cache: true
+          lake-package-directory: campaign-template
       - name: Install Graphviz
         run: sudo apt-get update && sudo apt-get install --yes graphviz
       - name: Verify campaign template
