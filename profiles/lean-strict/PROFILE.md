@@ -67,11 +67,14 @@ The canonical campaign check must:
 4. compile every first-party module with warnings as errors;
 5. run every default environment linter, including slow checks;
 6. compare the complete certificate axiom reports with the reviewed snapshot;
-7. run `lake env leanchecker <library>...` for every first-party library.
+7. run `LEAN_NUM_THREADS=1 lake env leanchecker <library>...` for every first-party library.
 
 `leanchecker` reuses Lean's kernel; it is not an independent proof assistant.
 Keep its library roots synchronized with the complete build/linter scope when
 adding or renaming a library. The generated exact-type audit is still required.
+Only replay is serialized: each checker task imports its own environment, and
+parallel Mathlib imports can exhaust small CI runners. Ordinary builds retain
+their normal concurrency. This changes resource use, not verification coverage.
 
 Changing the snapshot is a mathematical review action, never blind generated
 cleanup.
